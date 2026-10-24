@@ -1,0 +1,53 @@
+{
+  "id": "rolling-7-day-units",
+  "title": "Trailing 7-Day Average Units per Product",
+  "difficulty": "hard",
+  "language": "python",
+  "tags": [
+    "pandas",
+    "rolling",
+    "window-functions",
+    "time-series"
+  ],
+  "prompt": "Merchandising wants a smoothed demand signal per product.\n\n`daily_sales` is a log with gaps: a product has **no row** on days it sold nothing, and it can have **several rows for the same day** (one per warehouse) that must be added together. A NULL `units` counts as 0, but the row still marks that the day is in the log.\n\nFor each product, build a **complete daily series from its first `sale_date` to its last `sale_date` (inclusive)**, with 0 units on missing days. For every day in that range return:\n\n| column | definition |\n|---|---|\n| `product_id` | |\n| `sale_date` | the day |\n| `units` | total units that day (0 for filled days) |\n| `rolling_7d_avg` | mean of `units` over the 7-day window ending on this day (this day and the 6 before it), **rounded to 2 decimals** |\n\nThe series starts at the product's first sale date: for the first 6 days of a product, average over the days available so far (day 1 averages 1 day, day 2 averages 2 days, and so on).\n\nRow order does not matter.\n",
+  "tables": [
+    {
+      "name": "daily_sales",
+      "columns": [
+        {
+          "name": "product_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "sale_date",
+          "type": "DATE"
+        },
+        {
+          "name": "units",
+          "type": "INTEGER"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE daily_sales (product_id INTEGER, sale_date DATE, units INTEGER);\nINSERT INTO daily_sales VALUES\n  (1, '2024-06-01', 10),\n  (1, '2024-06-02',  4),\n  (1, '2024-06-04',  6),\n  (1, '2024-06-04',  2),\n  (1, '2024-06-08',  7),\n  (2, '2024-06-03',  5),\n  (2, '2024-06-05',  1);\n",
+  "hidden_seed": "CREATE TABLE daily_sales (product_id INTEGER, sale_date DATE, units INTEGER);\nINSERT INTO daily_sales VALUES\n  (7,  '2024-02-28', 3),     -- single-day product\n  (8,  '2024-02-27', 4),     -- range crosses the leap day\n  (8,  '2024-03-02', 6),\n  (9,  '2024-05-01', NULL),  -- NULL plus a real row on the same day\n  (9,  '2024-05-01', 9),\n  (9,  '2024-05-02', NULL),  -- NULL-only day\n  (9,  '2024-05-12', 14),    -- gap longer than the window\n  (10, '2024-07-01', 2),\n  (10, '2024-07-03', NULL);  -- last log row has NULL units: range still ends here\n",
+  "solution": "import pandas as pd\n\n\ndef solve(daily_sales: pd.DataFrame) -> pd.DataFrame:\n    df = daily_sales.copy()\n    df[\"units\"] = df[\"units\"].fillna(0)\n\n    parts = []\n    for product_id, g in df.groupby(\"product_id\"):\n        per_day = g.groupby(\"sale_date\")[\"units\"].sum()\n        days = pd.date_range(per_day.index.min(), per_day.index.max(), freq=\"D\")\n        per_day = per_day.reindex(days, fill_value=0)\n        parts.append(\n            pd.DataFrame(\n                {\n                    \"product_id\": product_id,\n                    \"sale_date\": days,\n                    \"units\": per_day.to_numpy(),\n                    \"rolling_7d_avg\": per_day.rolling(7, min_periods=1).mean().round(2).to_numpy(),\n                }\n            )\n        )\n    return pd.concat(parts, ignore_index=True)\n",
+  "ordered": false,
+  "tolerance": 0.006,
+  "python": {
+    "entry": "solve",
+    "signature": "solve(daily_sales: pd.DataFrame) -> pd.DataFrame"
+  },
+  "hints": [
+    "A row-based `rolling(7)` on the raw rows averages the last 7 *rows*, not the last 7 *days*. Collapse to one row per day, then fill the missing days.",
+    "`pd.date_range(first, last, freq=\"D\")` plus `reindex(..., fill_value=0)` gives a gap-free series. `rolling(7, min_periods=1)` handles the first six days."
+  ],
+  "explanation": "A trailing window over **calendar days** needs a gap-free daily series:\n\n1. `fillna(0)` on `units` (do not drop the rows: a NULL-unit row can be the last day of the range).\n2. Per product, `groupby(\"sale_date\").sum()` to merge same-day rows.\n3. `reindex(pd.date_range(min, max, freq=\"D\"), fill_value=0)` to insert the missing days.\n4. `rolling(7, min_periods=1).mean()`: a window of the current row and the 6 before it, averaging over however many days exist at the start.\n\nAlternatives and their traps:\n\n- `rolling(\"7D\")` on the *unfilled* series sums the right rows but divides by the number of **rows present**, not 7, so missing days are ignored instead of counted as 0. It also never emits the filled days.\n- `groupby(\"product_id\").rolling(7)` on raw rows treats duplicate same-day rows as separate days.\n- `resample(\"D\")` per product (on a DatetimeIndex) is an equally good way to fill gaps.\n\nHidden edge cases: a single-day product, a range across 29 February, a NULL and a real row on the same day, a NULL-only day, a gap longer than the window, and a range whose last day has only NULL units.\n",
+  "starter": "import pandas as pd\n\n\ndef solve(daily_sales: pd.DataFrame) -> pd.DataFrame:\n    # Your code here\n    return daily_sales.head()\n",
+  "trap_solutions": [
+    {
+      "note": "drops NULL-unit rows (shrinks the date range)",
+      "code": "import pandas as pd\n\ndef solve(daily_sales):\n    df = daily_sales.dropna(subset=[\"units\"])\n    parts = []\n    for pid, g in df.groupby(\"product_id\"):\n        s = g.groupby(\"sale_date\")[\"units\"].sum()\n        d = pd.date_range(s.index.min(), s.index.max(), freq=\"D\")\n        s = s.reindex(d, fill_value=0)\n        parts.append(pd.DataFrame({\"product_id\": pid, \"sale_date\": d, \"units\": s.to_numpy(), \"r\": s.rolling(7, min_periods=1).mean().round(2).to_numpy()}))\n    return pd.concat(parts, ignore_index=True)\n"
+    }
+  ]
+}

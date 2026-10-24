@@ -1,0 +1,53 @@
+{
+  "id": "clickstream-sessionization",
+  "title": "Sessionize a Clickstream",
+  "difficulty": "extreme",
+  "language": "sql",
+  "tags": [
+    "window-functions",
+    "lag",
+    "gaps-and-islands",
+    "sessionization"
+  ],
+  "prompt": "Product analytics stores raw click events with no session id. Build the sessions yourself.\n\n**Session rule.** Take one user's events in time order. A new session starts at the user's first event, and at every event that occurs **more than 30 minutes** after that user's *previous* event.\n\n- A gap of **exactly 30 minutes** (10:00:00 → 10:30:00) stays in the same session; 10:00:00 → 10:30:01 starts a new one.\n- Events with identical timestamps are in the same session (the gap is 0). Duplicate rows are separate events.\n- Rows with a NULL `event_ts` are ignored entirely: they neither split nor extend a session and do not count as purchases.\n- `event_type` values are lowercase; `'purchase'` marks a purchase.\n\nFor each user with at least one non-NULL event, return:\n\n| column | definition |\n|---|---|\n| `user_id` | |\n| `session_count` | number of sessions |\n| `converting_sessions` | number of sessions containing at least one `'purchase'` event |\n| `longest_session_minutes` | the maximum, over the user's sessions, of (last event time − first event time) in minutes, as a number (can be fractional; a one-event session lasts 0) |\n",
+  "tables": [
+    {
+      "name": "events",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "event_ts",
+          "type": "TIMESTAMP"
+        },
+        {
+          "name": "event_type",
+          "type": "VARCHAR"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE events (user_id INTEGER, event_ts TIMESTAMP, event_type VARCHAR);\nINSERT INTO events VALUES\n  (1, '2024-09-01 10:00:00', 'page_view'),\n  (1, '2024-09-01 10:10:00', 'add_to_cart'),\n  (1, '2024-09-01 10:25:00', 'purchase'),\n  (1, '2024-09-01 11:30:00', 'page_view'),\n  (1, '2024-09-01 11:40:00', 'page_view'),\n  (2, '2024-09-01 09:00:00', 'page_view'),\n  (2, '2024-09-01 09:20:00', 'page_view'),\n  (2, '2024-09-01 09:45:00', 'page_view'),\n  (2, '2024-09-01 13:00:00', 'purchase'),\n  (3, '2024-09-02 08:00:00', 'page_view');\n",
+  "hidden_seed": "CREATE TABLE events (user_id INTEGER, event_ts TIMESTAMP, event_type VARCHAR);\nINSERT INTO events VALUES\n  -- exactly-30-minute gaps stay together; 30m01s splits\n  (10, '2024-10-01 10:00:00', 'page_view'),\n  (10, '2024-10-01 10:30:00', 'page_view'),\n  (10, '2024-10-01 11:00:00', 'purchase'),\n  (10, '2024-10-01 11:30:01', 'page_view'),\n  -- duplicate timestamps and duplicate rows\n  (11, '2024-10-01 09:00:00', 'page_view'),\n  (11, '2024-10-01 09:00:00', 'page_view'),\n  (11, '2024-10-01 09:00:00', 'purchase'),\n  (11, '2024-10-01 09:31:00', 'page_view'),\n  -- a NULL-timestamp purchase must not bridge the 45-minute gap or convert a session\n  (12, '2024-10-02 12:00:00', 'page_view'),\n  (12, NULL,                  'purchase'),\n  (12, '2024-10-02 12:45:00', 'page_view'),\n  -- user with only NULL timestamps: not returned\n  (13, NULL,                  'page_view'),\n  -- long chain of 20-minute gaps, inserted out of order\n  (14, '2024-10-03 09:40:00', 'purchase'),\n  (14, '2024-10-03 08:00:00', 'page_view'),\n  (14, '2024-10-03 08:20:00', 'page_view'),\n  (14, '2024-10-03 09:00:00', 'page_view'),\n  (14, '2024-10-03 08:40:00', 'page_view'),\n  (14, '2024-10-03 09:20:00', 'page_view'),\n  (14, '2024-10-04 08:00:00', 'purchase'),\n  -- fractional minutes\n  (15, '2024-10-05 10:00:00', 'page_view'),\n  (15, '2024-10-05 10:15:30', 'page_view');\n",
+  "solution": "WITH valid AS (\n  SELECT user_id, event_ts, event_type\n  FROM events\n  WHERE event_ts IS NOT NULL\n),\nflagged AS (\n  SELECT\n    *,\n    CASE\n      WHEN LAG(event_ts) OVER w IS NULL THEN 1\n      WHEN event_ts - LAG(event_ts) OVER w > INTERVAL 30 MINUTE THEN 1\n      ELSE 0\n    END AS is_new_session\n  FROM valid\n  WINDOW w AS (PARTITION BY user_id ORDER BY event_ts)\n),\nnumbered AS (\n  SELECT\n    *,\n    SUM(is_new_session) OVER (\n      PARTITION BY user_id ORDER BY event_ts\n      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n    ) AS session_no\n  FROM flagged\n),\nsessions AS (\n  SELECT\n    user_id,\n    session_no,\n    MIN(event_ts) AS session_start,\n    MAX(event_ts) AS session_end,\n    MAX(CASE WHEN event_type = 'purchase' THEN 1 ELSE 0 END) AS has_purchase\n  FROM numbered\n  GROUP BY user_id, session_no\n)\nSELECT\n  user_id,\n  COUNT(*) AS session_count,\n  SUM(has_purchase) AS converting_sessions,\n  MAX(epoch(session_end) - epoch(session_start)) / 60.0 AS longest_session_minutes\nFROM sessions\nGROUP BY user_id;\n",
+  "ordered": false,
+  "hints": [
+    "Use `LAG(event_ts)` per user to compute the gap to the previous event, and flag rows that start a new session.",
+    "A running `SUM` of that flag numbers the sessions. Then aggregate per session, then per user.",
+    "Rows with NULL `event_ts` sort to the end of the window in DuckDB. What does `LAG` return for the row after them, and what does that do to your flag?"
+  ],
+  "explanation": "Sessionization is a **gaps-and-islands** problem where an island ends when the gap to the previous row exceeds a threshold.\n\n1. **Drop NULL timestamps first.** If they stay in, they sort last in the window (DuckDB's default is NULLS LAST). The gap from a valid event to a NULL one is NULL, which falls into `ELSE 0` and glues the NULL row (and its `'purchase'`) onto the last session.\n2. **Flag session starts**: first event per user (`LAG` is NULL) or a gap `> INTERVAL 30 MINUTE`. The comparison must be strict `>`, so exactly 30 minutes stays together.\n3. **Number sessions** with a running `SUM(flag)`. Ties on `event_ts` are harmless: the tied rows have gap 0, so only the first of them can carry the flag, and their running sums end up equal whatever order the ties take.\n4. **Aggregate per session** (start, end, has_purchase), then **per user**.\n\nDuration: `epoch(end) - epoch(start)` gives seconds; divide by 60.0. In other engines use `EXTRACT(EPOCH FROM end - start)` (Postgres) or `TIMESTAMPDIFF(SECOND, ...)` (MySQL).\n\nHidden edge cases: gaps of exactly 30:00 and 30:01, triplicate timestamps, a NULL-timestamp purchase between two events 45 minutes apart, a user with only NULL timestamps, rows inserted out of time order, and a 15.5-minute session.\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM events\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "uses >= 30 minutes (exact 30-minute gap splits)",
+      "code": "WITH f AS (SELECT *, CASE WHEN LAG(event_ts) OVER w IS NULL OR event_ts - LAG(event_ts) OVER w >= INTERVAL 30 MINUTE THEN 1 ELSE 0 END AS n FROM events WHERE event_ts IS NOT NULL WINDOW w AS (PARTITION BY user_id ORDER BY event_ts)), s AS (SELECT *, SUM(n) OVER (PARTITION BY user_id ORDER BY event_ts ROWS UNBOUNDED PRECEDING) AS sn FROM f), g AS (SELECT user_id, sn, MIN(event_ts) a, MAX(event_ts) b, MAX(CASE WHEN event_type='purchase' THEN 1 ELSE 0 END) p FROM s GROUP BY 1,2) SELECT user_id, COUNT(*), SUM(p), MAX(epoch(b)-epoch(a))/60.0 FROM g GROUP BY 1;\n"
+    },
+    {
+      "note": "keeps NULL timestamps",
+      "code": "WITH f AS (SELECT *, CASE WHEN LAG(event_ts) OVER w IS NULL OR event_ts - LAG(event_ts) OVER w > INTERVAL 30 MINUTE THEN 1 ELSE 0 END AS n FROM events WINDOW w AS (PARTITION BY user_id ORDER BY event_ts)), s AS (SELECT *, SUM(n) OVER (PARTITION BY user_id ORDER BY event_ts ROWS UNBOUNDED PRECEDING) AS sn FROM f), g AS (SELECT user_id, sn, MIN(event_ts) a, MAX(event_ts) b, MAX(CASE WHEN event_type='purchase' THEN 1 ELSE 0 END) p FROM s GROUP BY 1,2) SELECT user_id, COUNT(*), SUM(p), MAX(epoch(b)-epoch(a))/60.0 FROM g GROUP BY 1;\n"
+    }
+  ]
+}

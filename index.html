@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'unsafe-eval' blob:; worker-src 'self' blob: data:; connect-src 'self' https://cdn.jsdelivr.net https://api.anthropic.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>SQL &amp; Python Practice</title>
+    <meta name="description" content="Practice SQL and pandas interview questions in the browser with DuckDB-WASM and Pyodide." />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="assets/css/style.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to questions</a>
+    <header class="site-header">
+      <a class="brand" href="./">SQL &amp; Python Practice</a>
+      <div class="header-actions">
+        <button type="button" id="theme-toggle">Theme: auto</button>
+      </div>
+    </header>
+
+    <main id="main" class="container">
+      <section class="intro">
+        <h1>Practice questions</h1>
+        <p>
+          Analytics and data-engineering interview practice. SQL runs on DuckDB and Python runs on pandas, both inside your
+          browser. Nothing you type is sent to a server unless you turn on AI review with your own key.
+        </p>
+      </section>
+
+      <form class="filters" id="filters" aria-label="Filter questions">
+        <div class="field">
+          <label for="f-search">Search</label>
+          <input type="search" id="f-search" placeholder="Title or tag" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="f-difficulty">Difficulty</label>
+          <select id="f-difficulty">
+            <option value="">All</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+            <option value="extreme">Extreme</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-language">Language</label>
+          <select id="f-language">
+            <option value="">All</option>
+            <option value="sql">SQL</option>
+            <option value="python">Python</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-tag">Tag</label>
+          <select id="f-tag">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-status">Status</label>
+          <select id="f-status">
+            <option value="">All</option>
+            <option value="unsolved">Unsolved</option>
+            <option value="solved">Solved</option>
+          </select>
+        </div>
+      </form>
+
+      <p class="progress-line" id="progress-line" aria-live="polite"></p>
+
+      <table class="qtable" aria-describedby="progress-line">
+        <thead>
+          <tr>
+            <th scope="col">Status</th>
+            <th scope="col">Title</th>
+            <th scope="col">Language</th>
+            <th scope="col">Difficulty</th>
+            <th scope="col">Tags</th>
+          </tr>
+        </thead>
+        <tbody id="qbody">
+          <tr>
+            <td colspan="5" class="empty">Loading…</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="hint-text">Progress is stored only in this browser (localStorage).</p>
+    </main>
+
+    <script type="module" src="assets/js/list.js"></script>
+  </body>
+</html>

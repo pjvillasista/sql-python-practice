@@ -1,0 +1,51 @@
+{
+  "id": "store-running-revenue",
+  "title": "Running Revenue by Store",
+  "difficulty": "medium",
+  "language": "sql",
+  "tags": [
+    "window-functions",
+    "running-total",
+    "aggregation"
+  ],
+  "prompt": "Finance wants each store's cumulative revenue curve.\n\nEach row in `sales` is one payment. Refunds are rows with a **negative** `amount`. Rows with a **NULL** `amount` are failed card captures and must be ignored completely.\n\nFor each store and each calendar day (the date part of `sale_ts`) that has **at least one row with a non-NULL amount**, return:\n\n- `store_id`\n- `sale_date`: DATE\n- `daily_revenue`: sum of that day's non-NULL amounts (refunds included, so it can be zero or negative)\n- `running_revenue`: the store's cumulative `daily_revenue` from its first output day up to and including this day\n\nDays with no qualifying rows are not output (do not fill gaps).\n\n**Order the result by `store_id`, then `sale_date`.**\n",
+  "tables": [
+    {
+      "name": "sales",
+      "columns": [
+        {
+          "name": "sale_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "store_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "sale_ts",
+          "type": "TIMESTAMP"
+        },
+        {
+          "name": "amount",
+          "type": "DOUBLE"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE sales (sale_id INTEGER, store_id INTEGER, sale_ts TIMESTAMP, amount DOUBLE);\nINSERT INTO sales VALUES\n  (1, 1, '2024-05-01 09:12:00', 120.00),\n  (2, 1, '2024-05-01 17:40:00',  80.00),\n  (3, 1, '2024-05-02 11:05:00',  50.00),\n  (4, 1, '2024-05-04 13:30:00', 200.00),\n  (5, 2, '2024-05-01 10:00:00',  60.00),\n  (6, 2, '2024-05-03 15:20:00',  45.50),\n  (7, 2, '2024-05-03 18:45:00', -20.00),\n  (8, 2, '2024-05-04 12:00:00',  30.00);\n",
+  "hidden_seed": "CREATE TABLE sales (sale_id INTEGER, store_id INTEGER, sale_ts TIMESTAMP, amount DOUBLE);\nINSERT INTO sales VALUES\n  (1,  4, '2024-06-12 09:00:00',   0.00),  -- zero is a real amount: the day is output\n  (2,  1, '2024-06-01 00:00:00',  10.00),  -- first second of the day\n  (3,  1, '2024-06-01 23:59:59',   5.00),  -- last second of the same day\n  (4,  1, '2024-06-02 00:00:00', -15.00),  -- refund-only day: negative daily revenue\n  (5,  1, '2024-06-03 08:00:00',   NULL),  -- NULL-only day: not output\n  (6,  1, '2024-06-05 10:00:00',  40.00),\n  (7,  1, '2024-06-05 11:00:00',   NULL),\n  (8,  2, '2024-06-02 12:00:00',  99.00),\n  (9,  3, '2024-06-01 09:00:00',   NULL),  -- store with only NULL amounts: not output\n  (10, 4, '2024-06-10 10:00:00',   1.10),\n  (11, 4, '2024-06-10 11:00:00',   2.20),\n  (12, 4, '2024-06-10 12:00:00',   3.30);\n",
+  "solution": "WITH daily AS (\n  SELECT\n    store_id,\n    CAST(sale_ts AS DATE) AS sale_date,\n    SUM(amount) AS daily_revenue\n  FROM sales\n  WHERE amount IS NOT NULL\n  GROUP BY store_id, CAST(sale_ts AS DATE)\n)\nSELECT\n  store_id,\n  sale_date,\n  daily_revenue,\n  SUM(daily_revenue) OVER (\n    PARTITION BY store_id\n    ORDER BY sale_date\n    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n  ) AS running_revenue\nFROM daily\nORDER BY store_id, sale_date;\n",
+  "ordered": true,
+  "hints": [
+    "Aggregate to one row per store per day first, then apply the window function to the daily rows.",
+    "`SUM(x) OVER (PARTITION BY ... ORDER BY ...)` gives a running total. Where does `WHERE amount IS NOT NULL` need to go so a NULL-only day disappears?"
+  ],
+  "explanation": "Two steps: **aggregate, then window**.\n\n1. Collapse `sales` to one row per `(store_id, sale_date)` with `SUM(amount)`, filtering `amount IS NOT NULL` **before** grouping. Otherwise a day that only has NULL rows survives as a group whose `SUM` is NULL.\n2. Run `SUM(daily_revenue) OVER (PARTITION BY store_id ORDER BY sale_date ...)` over those daily rows.\n\nApplying the window directly to raw `sales` rows produces one row per payment, not per day.\n\nAbout the frame: with `ORDER BY` and no explicit frame, the default is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, which lumps together peers with the same `sale_date`. After aggregation each date is unique, so `RANGE` and `ROWS` agree here. Writing `ROWS` explicitly states the intent and is often cheaper.\n\nHidden edge cases: sales at 00:00:00 and 23:59:59 of the same day, a refund-only day with negative revenue, a day with only NULL amounts, a store with only NULL amounts, a zero-amount sale (a real day), and floating-point sums such as 1.10 + 2.20 + 3.30 (compared with a tolerance).\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM sales\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "groups before filtering NULLs, so a NULL-only day survives",
+      "code": "WITH d AS (SELECT store_id, CAST(sale_ts AS DATE) AS sale_date, SUM(amount) AS daily_revenue FROM sales GROUP BY 1, 2) SELECT store_id, sale_date, daily_revenue, SUM(daily_revenue) OVER (PARTITION BY store_id ORDER BY sale_date) FROM d ORDER BY 1, 2;\n"
+    }
+  ]
+}

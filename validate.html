@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'unsafe-eval' blob:; worker-src 'self' blob: data:; connect-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <meta name="robots" content="noindex" />
+    <title>Question Validator</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="assets/css/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="./">SQL &amp; Python Practice</a>
+      <div class="header-actions"><span class="hint-text">Author tool: executes every question in the real engines</span></div>
+    </header>
+    <main class="container">
+      <h1>Question validator</h1>
+      <p>
+        For every question in <code>questions/index.json</code> this page runs, in DuckDB-WASM and Pyodide: both seeds; a schema
+        check (declared columns and types against DuckDB); the reference solution on both datasets (must succeed with at least
+        one row); the starter code on the visible data (must run); the reference graded against itself (must pass); and each
+        <code>trap_solutions</code> entry (must FAIL at least one dataset). It shows reference outputs for review, including hidden
+        data, so keep it out of navigation.
+      </p>
+      <p>
+        <label for="only">Only question id (optional): </label>
+        <input type="text" id="only" placeholder="e.g. concurrent-sessions" />
+        <button type="button" id="start" class="primary">Run validation</button>
+      </p>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <div id="results"></div>
+    </main>
+    <script type="module" src="assets/js/validate.js"></script>
+  </body>
+</html>

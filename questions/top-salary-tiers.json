@@ -1,0 +1,68 @@
+{
+  "id": "top-salary-tiers",
+  "title": "Top Three Salary Tiers per Department",
+  "difficulty": "medium",
+  "language": "sql",
+  "tags": [
+    "window-functions",
+    "dense-rank",
+    "ties"
+  ],
+  "prompt": "HR wants the highest-paid people in each department, where **ties share a tier**.\n\nWithin a department, rank the **distinct** salary values from highest to lowest: the highest salary is tier 1, the next lower distinct salary is tier 2, and so on. Return every employee whose salary is in tier 1, 2 or 3 of their department.\n\n- Several employees can share a tier, so a department can return more than three employees.\n- A department with fewer than three distinct salaries returns everyone who has a salary.\n- Ignore employees whose `salary` is NULL (they do not occupy a tier), whose `department_id` is NULL, or whose `department_id` does not exist in `departments`.\n\n**Output columns:** `department_name`, `name`, `salary`, `salary_tier` (1 = highest).\n",
+  "tables": [
+    {
+      "name": "departments",
+      "columns": [
+        {
+          "name": "department_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "department_name",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "name": "employees",
+      "columns": [
+        {
+          "name": "employee_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "department_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "salary",
+          "type": "INTEGER"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE departments (department_id INTEGER, department_name VARCHAR);\nINSERT INTO departments VALUES (10, 'Engineering'), (20, 'Sales'), (30, 'Support');\nCREATE TABLE employees (employee_id INTEGER, name VARCHAR, department_id INTEGER, salary INTEGER);\nINSERT INTO employees VALUES\n  (1,  'Avery',  10, 185000),\n  (2,  'Blake',  10, 172000),\n  (3,  'Casey',  10, 172000),\n  (4,  'Drew',   10, 160000),\n  (5,  'Emery',  10, 151000),\n  (6,  'Finley', 20,  98000),\n  (7,  'Gray',   20,  91000),\n  (8,  'Harper', 20,  87000),\n  (9,  'Indy',   20,  80000),\n  (10, 'Jules',  30,  64000),\n  (11, 'Kai',    30,  61000);\n",
+  "hidden_seed": "CREATE TABLE departments (department_id INTEGER, department_name VARCHAR);\nINSERT INTO departments VALUES (1, 'Data'), (2, 'Design'), (3, 'Legal'), (4, 'Ops');  -- Ops has no employees\nCREATE TABLE employees (employee_id INTEGER, name VARCHAR, department_id INTEGER, salary INTEGER);\nINSERT INTO employees VALUES\n  (1,  'Ana', 1,    150000),   -- three-way tie for tier 1\n  (2,  'Ben', 1,    150000),\n  (3,  'Cal', 1,    150000),\n  (4,  'Dot', 1,    140000),\n  (5,  'Eve', 1,    NULL),     -- NULL salary: ignored\n  (6,  'Fox', 1,    130000),\n  (7,  'Gus', 1,    130000),\n  (8,  'Hal', 1,    120000),   -- tier 4: excluded\n  (9,  'Ivy', 2,     95000),\n  (13, 'Max', 2,     95000),\n  (14, 'Ned', 2,     70000),   -- only two distinct salaries in Design\n  (10, 'Jon', 3,    NULL),     -- Legal: only a NULL salary\n  (11, 'Kim', NULL, 200000),   -- no department\n  (12, 'Lou', 99,   210000);   -- unknown department\n",
+  "solution": "WITH ranked AS (\n  SELECT\n    e.name,\n    e.department_id,\n    e.salary,\n    DENSE_RANK() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC) AS salary_tier\n  FROM employees AS e\n  WHERE e.salary IS NOT NULL\n)\nSELECT d.department_name, r.name, r.salary, r.salary_tier\nFROM ranked AS r\nJOIN departments AS d\n  ON d.department_id = r.department_id\nWHERE r.salary_tier <= 3;\n",
+  "ordered": false,
+  "hints": [
+    "Compare `ROW_NUMBER()`, `RANK()` and `DENSE_RANK()` on salaries 150, 150, 140. Which numbering matches \"distinct salary tiers\"?",
+    "Where do NULL salaries sort with `ORDER BY salary DESC` in DuckDB, and what tier would they get if you do not filter them out?"
+  ],
+  "explanation": "On salaries 150, 150, 140, 130:\n\n| function | result | meaning |\n|---|---|---|\n| `ROW_NUMBER()` | 1, 2, 3, 4 | arbitrary tie-break: drops tied people |\n| `RANK()` | 1, 1, 3, 4 | skips numbers after ties: \"top 3 people\" |\n| `DENSE_RANK()` | 1, 1, 2, 3 | no gaps: \"top 3 distinct salaries\" |\n\nThe prompt defines tiers over **distinct salary values**, so `DENSE_RANK` is the match.\n\nFilter `salary IS NOT NULL` *before* ranking. DuckDB sorts NULLs last by default, so a NULL salary would otherwise get its own tier. In a department whose only salary is NULL (Legal, in the hidden data), that NULL would be tier 1 and returned. Joining to `departments` with an inner join removes NULL and unknown department ids.\n\nHidden edge cases: a three-way tie at tier 1, ties at tier 3, a fourth tier that must be excluded, a department with only two distinct salaries, a department with no employees, a NULL-salary-only department, and employees with NULL or unknown departments.\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM employees\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "RANK instead of DENSE_RANK",
+      "code": "WITH r AS (SELECT name, department_id, salary, RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS tier FROM employees WHERE salary IS NOT NULL) SELECT d.department_name, r.name, r.salary, r.tier FROM r JOIN departments d USING (department_id) WHERE r.tier <= 3;\n"
+    },
+    {
+      "note": "does not filter NULL salaries",
+      "code": "WITH r AS (SELECT name, department_id, salary, DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS tier FROM employees) SELECT d.department_name, r.name, r.salary, r.tier FROM r JOIN departments d USING (department_id) WHERE r.tier <= 3;\n"
+    }
+  ]
+}

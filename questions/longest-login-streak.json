@@ -1,0 +1,53 @@
+{
+  "id": "longest-login-streak",
+  "title": "Longest Daily Login Streak",
+  "difficulty": "extreme",
+  "language": "python",
+  "tags": [
+    "pandas",
+    "gaps-and-islands",
+    "dates",
+    "dedupe"
+  ],
+  "prompt": "For an engagement badge, find each user's **longest streak of consecutive calendar days** with at least one login.\n\n- A login's day is the calendar date of `login_ts` as stored (no time zone conversion). Several logins on the same day count as one day.\n- A streak is a run of consecutive calendar days. Month and year boundaries do not break it: 2024-02-28, 2024-02-29, 2024-03-01 is a 3-day streak.\n- Rows with a NULL `login_ts` are ignored. Users with no non-NULL logins are not returned.\n- If a user has several streaks of the same maximum length, report the **most recent** one.\n\nReturn columns **`user_id`, `longest_streak`, `streak_start`, `streak_end`**: the streak length in days and its first and last day (as dates or midnight timestamps; both are accepted). One row per user.\n",
+  "tables": [
+    {
+      "name": "logins",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "login_ts",
+          "type": "TIMESTAMP"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE logins (user_id INTEGER, login_ts TIMESTAMP);\nINSERT INTO logins VALUES\n  (1, '2024-01-01 08:00:00'),\n  (1, '2024-01-02 21:00:00'),\n  (1, '2024-01-03 07:30:00'),\n  (1, '2024-01-05 09:00:00'),\n  (2, '2024-01-01 10:00:00'),\n  (2, '2024-01-01 18:00:00'),\n  (2, '2024-01-02 10:00:00'),\n  (3, '2024-01-10 12:00:00');\n",
+  "hidden_seed": "CREATE TABLE logins (user_id INTEGER, login_ts TIMESTAMP);\nINSERT INTO logins VALUES\n  -- tie between two 2-day streaks: report the later one (inserted out of order)\n  (10, '2024-03-11 09:00:00'),\n  (10, '2024-03-01 09:00:00'),\n  (10, '2024-03-10 09:00:00'),\n  (10, '2024-03-02 09:00:00'),\n  -- around midnight and across the leap day, with a duplicate day\n  (11, '2024-02-20 10:00:00'),\n  (11, '2024-02-28 23:59:59'),\n  (11, '2024-02-29 00:00:01'),\n  (11, '2024-02-29 13:00:00'),\n  (11, '2024-03-01 12:00:00'),\n  -- across a year boundary; a shorter later streak must not win\n  (12, '2023-12-30 10:00:00'),\n  (12, '2023-12-31 10:00:00'),\n  (12, '2024-01-01 10:00:00'),\n  (12, '2024-01-02 10:00:00'),\n  (12, '2024-01-10 10:00:00'),\n  (12, '2024-01-11 10:00:00'),\n  (12, '2024-01-12 10:00:00'),\n  -- only NULL logins: not returned\n  (13, NULL),\n  -- NULL plus one real login\n  (14, NULL),\n  (14, '2024-05-05 05:05:05'),\n  -- many logins on one day are a 1-day streak\n  (15, '2024-06-01 01:00:00'),\n  (15, '2024-06-01 02:00:00'),\n  (15, '2024-06-01 03:00:00');\n",
+  "solution": "import pandas as pd\n\n\ndef solve(logins: pd.DataFrame) -> pd.DataFrame:\n    days = (\n        logins.dropna(subset=[\"login_ts\"])\n        .assign(day=lambda d: d[\"login_ts\"].dt.normalize())[[\"user_id\", \"day\"]]\n        .drop_duplicates()\n        .sort_values([\"user_id\", \"day\"])\n    )\n    # A new island starts wherever the previous day (same user) is not exactly yesterday.\n    gap = days.groupby(\"user_id\")[\"day\"].diff() != pd.Timedelta(days=1)\n    days[\"island\"] = gap.cumsum()\n\n    streaks = (\n        days.groupby([\"user_id\", \"island\"])\n        .agg(streak_start=(\"day\", \"min\"), streak_end=(\"day\", \"max\"), longest_streak=(\"day\", \"size\"))\n        .reset_index()\n    )\n    best = (\n        streaks.sort_values([\"user_id\", \"longest_streak\", \"streak_start\"], ascending=[True, False, False])\n        .drop_duplicates(subset=\"user_id\")\n    )\n    return best[[\"user_id\", \"longest_streak\", \"streak_start\", \"streak_end\"]].reset_index(drop=True)\n",
+  "ordered": false,
+  "python": {
+    "entry": "solve",
+    "signature": "solve(logins: pd.DataFrame) -> pd.DataFrame"
+  },
+  "hints": [
+    "Reduce to distinct (user, day) pairs first. Why does `.dt.normalize()` (or `.dt.date`) matter before de-duplicating?",
+    "Within a user, `day.diff() != 1 day` marks the start of a new island; a cumulative sum of that flag labels the islands.",
+    "Tie-break on the most recent streak by sorting on `streak_start` descending before taking the first row per user."
+  ],
+  "explanation": "This is **gaps-and-islands** in pandas.\n\n1. **Clean**: drop NULL timestamps, convert to days with `.dt.normalize()`, and de-duplicate `(user_id, day)`. Without de-duplication, three logins on one day look like a 3-row island and the length is wrong. Without normalizing, 23:59:59 and 00:00:01 on consecutive days are 2 seconds apart, not 1 day.\n2. **Label islands**: after sorting, `groupby(\"user_id\")[\"day\"].diff() != Timedelta(days=1)` is True at each island start (including each user's first row, where `diff` is NaT). Its cumulative sum is a unique island id.\n3. **Measure**: group by island for min, max and size.\n4. **Pick** the longest per user, breaking ties by the latest `streak_start`.\n\nSQL equivalent of step 2: `day - ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY day) * INTERVAL 1 DAY` is constant within an island. That trick also requires distinct days first.\n\nHidden edge cases: tied streak lengths (the later one wins), logins just before and after midnight, 29 February, a year boundary, several logins on one day, and NULL timestamps.\n",
+  "starter": "import pandas as pd\n\n\ndef solve(logins: pd.DataFrame) -> pd.DataFrame:\n    # Your code here\n    return logins.head()\n",
+  "trap_solutions": [
+    {
+      "note": "breaks ties by the earliest streak",
+      "code": "import pandas as pd\n\ndef solve(logins):\n    d = logins.dropna(subset=[\"login_ts\"]).assign(day=lambda x: x.login_ts.dt.normalize())[[\"user_id\", \"day\"]].drop_duplicates().sort_values([\"user_id\", \"day\"])\n    d[\"g\"] = (d.groupby(\"user_id\")[\"day\"].diff() != pd.Timedelta(days=1)).cumsum()\n    s = d.groupby([\"user_id\", \"g\"]).agg(a=(\"day\", \"min\"), b=(\"day\", \"max\"), n=(\"day\", \"size\")).reset_index()\n    s = s.sort_values([\"user_id\", \"n\", \"a\"], ascending=[True, False, True]).drop_duplicates(\"user_id\")\n    return s[[\"user_id\", \"n\", \"a\", \"b\"]]\n"
+    },
+    {
+      "note": "does not de-duplicate same-day logins",
+      "code": "import pandas as pd\n\ndef solve(logins):\n    d = logins.dropna(subset=[\"login_ts\"]).assign(day=lambda x: x.login_ts.dt.normalize())[[\"user_id\", \"day\"]].sort_values([\"user_id\", \"day\"])\n    d[\"g\"] = (d.groupby(\"user_id\")[\"day\"].diff() > pd.Timedelta(days=1)).cumsum()\n    s = d.groupby([\"user_id\", \"g\"]).agg(a=(\"day\", \"min\"), b=(\"day\", \"max\"), n=(\"day\", \"size\")).reset_index()\n    s = s.sort_values([\"user_id\", \"n\", \"a\"], ascending=[True, False, False]).drop_duplicates(\"user_id\")\n    return s[[\"user_id\", \"n\", \"a\", \"b\"]]\n"
+    }
+  ]
+}

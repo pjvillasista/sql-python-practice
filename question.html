@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'unsafe-eval' blob:; worker-src 'self' blob: data:; connect-src 'self' https://cdn.jsdelivr.net https://api.anthropic.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>Question · SQL &amp; Python Practice</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="assets/css/style.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#editor-section">Skip to editor</a>
+    <header class="site-header">
+      <a class="brand" href="./">SQL &amp; Python Practice</a>
+      <div class="header-actions">
+        <a class="btn" href="./">All questions</a>
+        <button type="button" id="settings-btn" aria-haspopup="dialog">Settings</button>
+        <button type="button" id="theme-toggle">Theme: auto</button>
+      </div>
+    </header>
+
+    <main class="qlayout" id="main">
+      <!-- Left: problem statement -->
+      <div>
+        <section class="panel" aria-labelledby="q-title">
+          <div class="qmeta" id="q-meta"></div>
+          <h1 class="qtitle" id="q-title">Loading…</h1>
+          <div class="prompt" id="q-prompt"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="tables-heading">
+          <h2 id="tables-heading">Tables (sample data)</h2>
+          <p class="hint-text" id="tables-note">
+            This is the visible dataset. Submissions are also checked against a hidden dataset with the same schema and more
+            edge cases.
+          </p>
+          <div id="q-tables"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="hints-heading">
+          <h2 id="hints-heading">Hints</h2>
+          <div id="q-hints"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="solution-heading">
+          <h2 id="solution-heading">Solution and explanation</h2>
+          <p class="hint-text" id="solution-locked">The explanation unlocks after you pass. You can also reveal the solution at any time.</p>
+          <button type="button" id="show-solution-btn">Show solution</button>
+          <div id="q-solution" hidden></div>
+          <div id="q-explanation" class="prompt" hidden></div>
+        </section>
+
+        <nav class="qnav panel" aria-label="Question navigation" id="q-nav"></nav>
+      </div>
+
+      <!-- Right: editor and output -->
+      <div>
+        <section class="panel editor-panel" id="editor-section" aria-labelledby="editor-heading">
+          <h2 id="editor-heading" class="visually-hidden">Your solution</h2>
+          <p class="hint-text" id="contract"></p>
+          <div class="editor-host" id="editor"></div>
+          <div class="toolbar" role="toolbar" aria-label="Run controls">
+            <button type="button" id="run-btn" class="primary" disabled>Run</button>
+            <button type="button" id="submit-btn" disabled>Submit</button>
+            <button type="button" id="stop-btn" class="danger" disabled>Stop</button>
+            <button type="button" id="reset-btn">Reset code</button>
+            <span class="spacer"></span>
+            <button type="button" id="ai-btn">Review my answer (AI)</button>
+          </div>
+          <p class="hint-text">
+            <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Enter</kbd> runs, add <kbd>Shift</kbd> to submit. In the editor, Tab indents; press
+            <kbd>Ctrl</kbd>+<kbd>M</kbd> (macOS: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>) to make Tab move focus instead.
+          </p>
+          <div class="status" id="status" role="status" aria-live="polite"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="output-heading">
+          <h2 id="output-heading">Output</h2>
+          <div class="output" id="output">
+            <p class="hint-text">Run your code to see the result on the visible data. Submit to grade it.</p>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="ai-heading">
+          <h2 id="ai-heading">AI review</h2>
+          <div id="ai-output" aria-live="polite">
+            <p class="hint-text">
+              Optional. Uses your own Anthropic API key (Settings). The grader's pass/fail is final; the AI only explains it.
+            </p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <form method="dialog" id="settings-form">
+        <h2 id="settings-title">Settings</h2>
+        <div class="warning" role="note">
+          <strong>Your API key, your bill.</strong> The key is stored only in this browser and is sent only to
+          <code>api.anthropic.com</code>, directly from this page. Anyone with access to this browser profile, any browser
+          extension with page access, or any script running on this site's origin could read it. On a shared
+          <code>*.github.io</code> origin, other pages on the same origin can read localStorage too. Use a dedicated key with a
+          low spend limit, and clear it when you are done.
+        </div>
+        <div class="form-row">
+          <label for="api-key">Anthropic API key</label>
+          <input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="sk-ant-..." />
+          <span class="hint-text" id="key-state"></span>
+        </div>
+        <div class="form-row inline">
+          <input type="checkbox" id="remember-key" checked />
+          <label for="remember-key">Remember on this device (localStorage). Unchecked: kept in memory until you reload.</label>
+        </div>
+        <div class="form-row inline">
+          <input type="checkbox" id="auto-review" />
+          <label for="auto-review">Request an AI review automatically on every Submit (each review is a billed API call).</label>
+        </div>
+        <p class="hint-text" id="model-line"></p>
+        <div class="dialog-actions">
+          <button type="button" id="clear-key-btn" class="danger">Clear key</button>
+          <button type="button" id="reset-progress-btn" class="danger">Reset progress</button>
+          <button type="button" id="cancel-settings-btn">Cancel</button>
+          <button type="submit" id="save-settings-btn" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="assets/js/question.js"></script>
+  </body>
+</html>

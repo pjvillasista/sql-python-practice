@@ -1,0 +1,21 @@
+# Dependencies (the site itself has none; these come from optional local tooling)
+node_modules/
+package-lock.json
+
+# Secrets: API keys belong in the browser's localStorage, never in files
+.env
+.env.*
+*.key
+secrets*.json
+
+# Local verification scratch space
+.verify/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.log
+__pycache__/

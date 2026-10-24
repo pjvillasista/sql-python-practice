@@ -1,0 +1,144 @@
+{
+  "questions": [
+    {
+      "id": "customers-without-orders",
+      "title": "Customers Who Never Ordered",
+      "difficulty": "easy",
+      "language": "sql",
+      "tags": [
+        "null-handling",
+        "anti-join",
+        "joins"
+      ]
+    },
+    {
+      "id": "merchant-transaction-summary",
+      "title": "Merchant Transaction Summary",
+      "difficulty": "easy",
+      "language": "sql",
+      "tags": [
+        "conditional-aggregation",
+        "joins",
+        "null-handling"
+      ]
+    },
+    {
+      "id": "store-running-revenue",
+      "title": "Running Revenue by Store",
+      "difficulty": "medium",
+      "language": "sql",
+      "tags": [
+        "window-functions",
+        "running-total",
+        "aggregation"
+      ]
+    },
+    {
+      "id": "top-salary-tiers",
+      "title": "Top Three Salary Tiers per Department",
+      "difficulty": "medium",
+      "language": "sql",
+      "tags": [
+        "window-functions",
+        "dense-rank",
+        "ties"
+      ]
+    },
+    {
+      "id": "campaign-roas-fanout",
+      "title": "Campaign ROAS Without Double Counting",
+      "difficulty": "medium",
+      "language": "sql",
+      "tags": [
+        "joins",
+        "fanout",
+        "aggregation",
+        "null-handling"
+      ]
+    },
+    {
+      "id": "concurrent-sessions",
+      "title": "Concurrent Sessions",
+      "difficulty": "hard",
+      "language": "sql",
+      "tags": [
+        "self-join",
+        "intervals",
+        "null-handling"
+      ]
+    },
+    {
+      "id": "monthly-cohort-retention",
+      "title": "Monthly Signup Cohort Retention",
+      "difficulty": "hard",
+      "language": "sql",
+      "tags": [
+        "retention",
+        "cohort",
+        "dates",
+        "conditional-aggregation"
+      ]
+    },
+    {
+      "id": "clickstream-sessionization",
+      "title": "Sessionize a Clickstream",
+      "difficulty": "extreme",
+      "language": "sql",
+      "tags": [
+        "window-functions",
+        "lag",
+        "gaps-and-islands",
+        "sessionization"
+      ]
+    },
+    {
+      "id": "clean-signup-list",
+      "title": "Deduplicate a Messy Signup List",
+      "difficulty": "easy",
+      "language": "python",
+      "tags": [
+        "pandas",
+        "cleaning",
+        "dedupe",
+        "strings"
+      ]
+    },
+    {
+      "id": "regional-revenue-pivot",
+      "title": "Quarterly Revenue Pivot by Region",
+      "difficulty": "medium",
+      "language": "python",
+      "tags": [
+        "pandas",
+        "merge",
+        "groupby",
+        "pivot",
+        "fanout"
+      ]
+    },
+    {
+      "id": "rolling-7-day-units",
+      "title": "Trailing 7-Day Average Units per Product",
+      "difficulty": "hard",
+      "language": "python",
+      "tags": [
+        "pandas",
+        "rolling",
+        "window-functions",
+        "time-series"
+      ]
+    },
+    {
+      "id": "longest-login-streak",
+      "title": "Longest Daily Login Streak",
+      "difficulty": "extreme",
+      "language": "python",
+      "tags": [
+        "pandas",
+        "gaps-and-islands",
+        "dates",
+        "dedupe"
+      ]
+    }
+  ]
+}

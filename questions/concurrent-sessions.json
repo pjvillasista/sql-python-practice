@@ -1,0 +1,59 @@
+{
+  "id": "concurrent-sessions",
+  "title": "Concurrent Sessions",
+  "difficulty": "hard",
+  "language": "sql",
+  "tags": [
+    "self-join",
+    "intervals",
+    "null-handling"
+  ],
+  "prompt": "A streaming service is investigating sessions that overlapped in time. This is about load on the platform, so concurrency is checked **across all sessions regardless of user**; `user_id` plays no role (two sessions of the same user can be concurrent).\n\nTwo **different** sessions `a` and `b` (different `session_id`) are **concurrent** when their time ranges overlap:\n\n```\na.start_ts < b.end_ts AND b.start_ts < a.end_ts\n```\n\nwith two clarifications:\n\n1. **Back-to-back sessions are not concurrent.** If one ends exactly when the other starts, the strict `<` already makes them non-overlapping.\n2. **Two sessions with identical `start_ts` and identical `end_ts` are not concurrent with each other.** Treat them as duplicate logging of one session. Each of them can still be concurrent with a *third* session that it overlaps.\n\nA session whose `end_ts` is **NULL** was never closed out by the logging pipeline. Its duration is unknown, so **exclude it entirely**: it is never concurrent with anything and is never returned. `start_ts` is never NULL and `session_id` is unique.\n\nReturn each `session_id` that is concurrent with at least one other session, once.\n\n**Output column:** `session_id`.\n",
+  "tables": [
+    {
+      "name": "sessions",
+      "columns": [
+        {
+          "name": "session_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "start_ts",
+          "type": "TIMESTAMP"
+        },
+        {
+          "name": "end_ts",
+          "type": "TIMESTAMP"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE sessions (session_id INTEGER, user_id INTEGER, start_ts TIMESTAMP, end_ts TIMESTAMP);\nINSERT INTO sessions VALUES\n  (1, 101, '2024-07-01 09:00:00', '2024-07-01 10:00:00'),\n  (2, 102, '2024-07-01 09:30:00', '2024-07-01 11:00:00'),\n  (3, 103, '2024-07-01 11:00:00', '2024-07-01 12:00:00'),\n  (4, 104, '2024-07-01 13:00:00', '2024-07-01 14:00:00'),\n  (5, 105, '2024-07-01 13:00:00', '2024-07-01 14:00:00'),\n  (6, 106, '2024-07-01 15:00:00', '2024-07-01 15:30:00');\n",
+  "hidden_seed": "CREATE TABLE sessions (session_id INTEGER, user_id INTEGER, start_ts TIMESTAMP, end_ts TIMESTAMP);\nINSERT INTO sessions VALUES\n  (10, 1,  '2024-08-01 08:00:00', '2024-08-01 12:00:00'),  -- contains 11\n  (11, 2,  '2024-08-01 09:00:00', '2024-08-01 10:00:00'),  -- nested inside 10\n  (12, 3,  '2024-08-01 12:00:00', '2024-08-01 13:00:00'),  -- back-to-back with 10\n  (13, 4,  '2024-08-01 12:30:00', '2024-08-01 14:00:00'),  -- partial overlap with 12\n  (14, 5,  '2024-08-01 15:00:00', '2024-08-01 16:00:00'),  -- identical to 15 ...\n  (15, 6,  '2024-08-01 15:00:00', '2024-08-01 16:00:00'),\n  (16, 7,  '2024-08-01 15:30:00', '2024-08-01 15:45:00'),  -- ... but both overlap 16\n  (17, 8,  '2024-08-01 18:00:00', '2024-08-01 19:00:00'),  -- identical pair, nothing else\n  (18, 9,  '2024-08-01 18:00:00', '2024-08-01 19:00:00'),\n  (19, 10, '2024-08-01 18:30:00', NULL),                   -- open session: excluded\n  (20, 11, '2024-08-01 20:00:00', '2024-08-01 21:00:00'),\n  (21, 12, '2024-08-01 21:00:00', '2024-08-01 22:00:00'),  -- back-to-back with 20\n  (22, 13, '2024-08-01 21:59:59', '2024-08-01 23:00:00'),  -- overlaps 21 by one second\n  (23, 1,  '2024-08-02 01:00:00', '2024-08-02 02:00:00'),  -- same user as 24\n  (24, 1,  '2024-08-02 01:30:00', '2024-08-02 02:30:00'),\n  (25, 14, '2024-08-02 05:00:00', NULL),                   -- two open sessions\n  (26, 15, '2024-08-02 05:00:00', NULL);\n",
+  "solution": "SELECT DISTINCT a.session_id\nFROM sessions AS a\nJOIN sessions AS b\n  ON a.session_id <> b.session_id\n AND a.start_ts < b.end_ts\n AND b.start_ts < a.end_ts\n AND NOT (a.start_ts = b.start_ts AND a.end_ts = b.end_ts);\n",
+  "ordered": false,
+  "hints": [
+    "Self-join `sessions` to itself and put the whole definition in the join condition. What happens to the comparisons when `end_ts` is NULL?",
+    "The identical-range rule excludes a *pair*, not a *session*. A session that has an identical twin can still be concurrent with someone else."
+  ],
+  "explanation": "A **self-join on an interval-overlap predicate**:\n\n```sql\na.session_id <> b.session_id\nAND a.start_ts < b.end_ts\nAND b.start_ts < a.end_ts\nAND NOT (a.start_ts = b.start_ts AND a.end_ts = b.end_ts)\n```\n\n- **Strict `<`** handles back-to-back sessions. With `<=`, a session ending at 11:00 would pair with one starting at 11:00.\n- **The identical rule is a property of the pair.** Putting it in the join condition removes only that pair. Removing every session that *has* an identical twin (for example with `NOT EXISTS`) also hides sessions 14 and 15 in the hidden data, which overlap session 16.\n- **NULL `end_ts`**: `x < NULL` is UNKNOWN, so open sessions never satisfy the predicate and drop out without extra code. Replacing NULL with \"now\" or a far-future timestamp would contradict the prompt.\n- `DISTINCT` is needed because a session can match several partners.\n\n**Performance.** This is O(n²) in the worst case. On large tables, sort by `start_ts` and compare each session only with later-starting sessions whose start is before its end. DuckDB also has a dedicated range-join operator for inequality predicates like this one.\n\nHidden edge cases: nested ranges, partial overlap, back-to-back pairs, a 1-second overlap, an identical pair overlapping a third session, an identical pair overlapping nothing, open sessions, and two sessions of the same user.\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM sessions\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "drops every session that has an identical twin (passes visible, fails hidden)",
+      "code": "SELECT DISTINCT a.session_id FROM sessions a JOIN sessions b ON a.session_id <> b.session_id AND a.start_ts < b.end_ts AND b.start_ts < a.end_ts WHERE NOT EXISTS (SELECT 1 FROM sessions c WHERE c.session_id <> a.session_id AND c.start_ts = a.start_ts AND c.end_ts = a.end_ts);\n"
+    },
+    {
+      "note": "treats NULL end_ts as still running (passes visible, fails hidden)",
+      "code": "WITH s AS (SELECT session_id, start_ts, COALESCE(end_ts, TIMESTAMP '9999-12-31') AS end_ts FROM sessions) SELECT DISTINCT a.session_id FROM s a JOIN s b ON a.session_id <> b.session_id AND a.start_ts < b.end_ts AND b.start_ts < a.end_ts AND NOT (a.start_ts = b.start_ts AND a.end_ts = b.end_ts);\n"
+    },
+    {
+      "note": "uses <= (back-to-back counted as concurrent)",
+      "code": "SELECT DISTINCT a.session_id FROM sessions a JOIN sessions b ON a.session_id <> b.session_id AND a.start_ts <= b.end_ts AND b.start_ts <= a.end_ts AND NOT (a.start_ts = b.start_ts AND a.end_ts = b.end_ts);\n"
+    }
+  ]
+}

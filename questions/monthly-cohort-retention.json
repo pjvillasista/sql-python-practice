@@ -1,0 +1,66 @@
+{
+  "id": "monthly-cohort-retention",
+  "title": "Monthly Signup Cohort Retention",
+  "difficulty": "hard",
+  "language": "sql",
+  "tags": [
+    "retention",
+    "cohort",
+    "dates",
+    "conditional-aggregation"
+  ],
+  "prompt": "Growth wants a month-1 / month-2 retention table by signup cohort.\n\n- A user's **cohort month** is the calendar month of `signup_ts`, output as the DATE of the first day of that month (e.g. `2024-01-01`).\n- A user is **retained in month k** if they have **at least one event of any kind** whose `event_ts` falls in the calendar month that is *k* months after the cohort month. For a January cohort, month 1 is all of February and month 2 is all of March, regardless of the signup day.\n- Events in the cohort month itself (month 0), events before signup, and events in month 3 or later do not count toward these columns.\n- Events from `user_id`s not in `users` are ignored.\n- Use the timestamps as stored (no time zone conversion).\n\nReturn one row per cohort month that has at least one user:\n\n| column | definition |\n|---|---|\n| `cohort_month` | DATE, first day of the month |\n| `cohort_size` | users who signed up in that month |\n| `retained_m1` | cohort users retained in month 1 |\n| `retained_m2` | cohort users retained in month 2 (whether or not they were retained in month 1) |\n| `m1_retention_pct` | `100 * retained_m1 / cohort_size`, rounded to 1 decimal place |\n\n**Order by `cohort_month`.**\n",
+  "tables": [
+    {
+      "name": "users",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "signup_ts",
+          "type": "TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "name": "events",
+      "columns": [
+        {
+          "name": "event_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "event_ts",
+          "type": "TIMESTAMP"
+        },
+        {
+          "name": "event_name",
+          "type": "VARCHAR"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE users (user_id INTEGER, signup_ts TIMESTAMP);\nINSERT INTO users VALUES\n  (1, '2024-01-05 10:00:00'),\n  (2, '2024-01-20 15:30:00'),\n  (3, '2024-01-31 23:00:00'),\n  (4, '2024-02-02 08:00:00'),\n  (5, '2024-02-14 12:00:00'),\n  (6, '2024-03-03 09:00:00');\nCREATE TABLE events (event_id INTEGER, user_id INTEGER, event_ts TIMESTAMP, event_name VARCHAR);\nINSERT INTO events VALUES\n  (1, 1, '2024-01-06 10:00:00', 'login'),\n  (2, 1, '2024-02-10 11:00:00', 'login'),\n  (3, 1, '2024-03-02 09:00:00', 'purchase'),\n  (4, 2, '2024-02-01 00:30:00', 'login'),\n  (5, 2, '2024-02-15 12:00:00', 'login'),\n  (6, 3, '2024-03-15 10:00:00', 'login'),\n  (7, 4, '2024-03-01 07:00:00', 'login'),\n  (8, 5, '2024-02-20 10:00:00', 'login'),\n  (9, 6, '2024-04-01 10:00:00', 'login');\n",
+  "hidden_seed": "CREATE TABLE users (user_id INTEGER, signup_ts TIMESTAMP);\nINSERT INTO users VALUES\n  (1, '2023-12-31 23:59:59'),   -- December cohort: months 1-2 are in the next year\n  (2, '2023-12-01 00:00:00'),\n  (3, '2023-12-15 12:00:00'),\n  (4, '2024-01-10 10:00:00'),\n  (5, '2024-01-11 10:00:00'),   -- no events at all\n  (6, '2024-01-12 10:00:00'),\n  (7, '2024-02-29 18:00:00'),   -- leap day signup\n  (8, '2024-04-01 00:00:00');   -- cohort with zero retention\nCREATE TABLE events (event_id INTEGER, user_id INTEGER, event_ts TIMESTAMP, event_name VARCHAR);\nINSERT INTO events VALUES\n  (1,  1,   '2024-01-01 00:00:00', 'login'),     -- month 1, first second\n  (2,  1,   '2024-02-29 23:59:59', 'login'),     -- month 2, last second\n  (3,  2,   '2024-02-10 10:00:00', 'login'),     -- month 2 only\n  (4,  2,   '2023-11-30 10:00:00', 'login'),     -- before signup\n  (5,  3,   '2024-03-01 00:00:00', 'login'),     -- month 3: ignored\n  (6,  3,   '2023-12-20 09:00:00', 'login'),     -- month 0\n  (7,  4,   '2024-02-01 00:00:00', 'login'),\n  (8,  4,   '2024-02-01 00:00:01', 'purchase'),  -- several month-1 events\n  (9,  4,   '2024-02-28 12:00:00', 'login'),\n  (10, 6,   '2024-03-31 23:59:59', 'login'),     -- month 2 only\n  (11, 7,   '2024-03-31 10:00:00', 'login'),\n  (12, 7,   '2024-04-30 23:59:59', 'login'),\n  (13, 8,   '2024-04-15 09:00:00', 'login'),     -- month 0 only\n  (14, 999, '2024-05-01 09:00:00', 'login');     -- unknown user\n",
+  "solution": "WITH cohort AS (\n  SELECT user_id, CAST(date_trunc('month', signup_ts) AS DATE) AS cohort_month\n  FROM users\n),\nactivity AS (\n  SELECT DISTINCT user_id, CAST(date_trunc('month', event_ts) AS DATE) AS activity_month\n  FROM events\n),\njoined AS (\n  SELECT\n    c.cohort_month,\n    c.user_id,\n    (year(a.activity_month) * 12 + month(a.activity_month))\n      - (year(c.cohort_month) * 12 + month(c.cohort_month)) AS month_offset\n  FROM cohort AS c\n  LEFT JOIN activity AS a ON a.user_id = c.user_id\n)\nSELECT\n  cohort_month,\n  COUNT(DISTINCT user_id) AS cohort_size,\n  COUNT(DISTINCT CASE WHEN month_offset = 1 THEN user_id END) AS retained_m1,\n  COUNT(DISTINCT CASE WHEN month_offset = 2 THEN user_id END) AS retained_m2,\n  ROUND(100.0 * COUNT(DISTINCT CASE WHEN month_offset = 1 THEN user_id END) / COUNT(DISTINCT user_id), 1) AS m1_retention_pct\nFROM joined\nGROUP BY cohort_month\nORDER BY cohort_month;\n",
+  "ordered": true,
+  "tolerance": 0.051,
+  "hints": [
+    "Truncate both timestamps to the month and compute a month offset as `year * 12 + month` differences. Why is `month(event) - month(signup)` not enough?",
+    "Use a LEFT JOIN from users to their activity so users with no events stay in `cohort_size`, then `COUNT(DISTINCT CASE WHEN offset = 1 THEN user_id END)`."
+  ],
+  "explanation": "Steps:\n\n1. **Cohort**: `date_trunc('month', signup_ts)` per user.\n2. **Activity months**: `DISTINCT (user_id, date_trunc('month', event_ts))`, so many events in a month count once.\n3. **Month offset**: `(year*12 + month)` of the activity month minus the same for the cohort month. `month(event) - month(signup)` breaks across a year boundary (January minus December is -11, not 1). Day-based rules such as \"30 to 60 days after signup\" answer a different question than calendar months.\n4. **LEFT JOIN** users to activity so users without events still count in `cohort_size`, then use conditional `COUNT(DISTINCT ...)` per offset.\n\n`100.0 * a / b` avoids integer division. In DuckDB, `/` on integers already returns a double, but in Postgres or SQL Server `1 / 3` is 0.\n\nHidden edge cases: a December cohort retained in January and February, events at the first and last second of a month, events before signup and in month 3, a user with no events, a leap-day signup, a cohort with zero retention (must show 0 and 0.0, not disappear), and an event for an unknown user.\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM users\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "month offset ignores the year (passes visible, fails hidden)",
+      "code": "WITH c AS (SELECT user_id, CAST(date_trunc('month', signup_ts) AS DATE) AS cm FROM users), j AS (SELECT c.cm, c.user_id, month(e.event_ts) - month(c.cm) AS k FROM c LEFT JOIN events e ON e.user_id = c.user_id) SELECT cm, COUNT(DISTINCT user_id), COUNT(DISTINCT CASE WHEN k=1 THEN user_id END), COUNT(DISTINCT CASE WHEN k=2 THEN user_id END), ROUND(100.0*COUNT(DISTINCT CASE WHEN k=1 THEN user_id END)/COUNT(DISTINCT user_id),1) FROM j GROUP BY cm ORDER BY cm;\n"
+    }
+  ]
+}

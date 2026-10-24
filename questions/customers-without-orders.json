@@ -1,0 +1,72 @@
+{
+  "id": "customers-without-orders",
+  "title": "Customers Who Never Ordered",
+  "difficulty": "easy",
+  "language": "sql",
+  "tags": [
+    "null-handling",
+    "anti-join",
+    "joins"
+  ],
+  "prompt": "An e-commerce team wants to email customers who created an account but never bought anything.\n\n- `orders.customer_id` is **NULL for guest checkouts** (orders placed without an account).\n- `orders` can also reference customer ids that no longer exist in `customers` (deleted accounts).\n\nReturn every customer in `customers` who has **no row at all** in `orders`, regardless of the order's amount (which may be 0 or NULL) or date.\n\n**Output columns:** `customer_id`, `name`. One row per qualifying customer.\n",
+  "tables": [
+    {
+      "name": "customers",
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "signup_date",
+          "type": "DATE"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "customer_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_date",
+          "type": "DATE"
+        },
+        {
+          "name": "amount",
+          "type": "DOUBLE"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE customers (customer_id INTEGER, name VARCHAR, signup_date DATE);\nINSERT INTO customers VALUES\n  (1, 'Ana Cruz',   '2024-01-03'),\n  (2, 'Ben Ito',    '2024-01-05'),\n  (3, 'Chloe Park', '2024-01-09'),\n  (4, 'Dev Shah',   '2024-02-01'),\n  (5, 'Eli Moreno', '2024-02-11'),\n  (6, 'Fay Okafor', '2024-02-20');\nCREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_date DATE, amount DOUBLE);\nINSERT INTO orders VALUES\n  (101, 1, '2024-01-10', 42.50),\n  (102, 2, '2024-01-12', 18.00),\n  (103, 2, '2024-02-02', 63.25),\n  (104, 4, '2024-02-14', 12.99),\n  (105, 1, '2024-02-15',  8.75);\n",
+  "hidden_seed": "CREATE TABLE customers (customer_id INTEGER, name VARCHAR, signup_date DATE);\nINSERT INTO customers VALUES\n  (1, 'Ana Cruz', '2024-01-03'),\n  (2, 'Ana Cruz', '2024-01-04'),   -- same name, different person\n  (3, 'Bo Lin',   '2024-01-05'),\n  (4, NULL,       '2024-01-06'),   -- name unknown, still a customer\n  (5, 'Cy Ward',  '2024-01-07'),\n  (6, 'Di Rao',   '2024-01-08'),\n  (7, 'Ed Kim',   '2024-01-09'),\n  (8, 'Flo Diaz', '2024-01-10');\nCREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_date DATE, amount DOUBLE);\nINSERT INTO orders VALUES\n  (201, 1,    '2024-02-01', 10.00),\n  (202, NULL, '2024-02-01', 99.00),  -- guest checkout\n  (203, NULL, '2024-02-02', 15.00),  -- guest checkout\n  (204, 3,    '2024-02-03',  0.00),  -- zero amount is still an order\n  (205, 999,  '2024-02-04', 20.00),  -- deleted customer\n  (206, 6,    '2024-02-05', NULL),   -- NULL amount is still an order\n  (207, 1,    '2024-02-06',  5.00);\n",
+  "solution": "SELECT c.customer_id, c.name\nFROM customers AS c\nWHERE NOT EXISTS (\n  SELECT 1\n  FROM orders AS o\n  WHERE o.customer_id = c.customer_id\n);\n",
+  "ordered": false,
+  "hints": [
+    "What does `5 NOT IN (1, 2, NULL)` evaluate to? Try `SELECT 5 NOT IN (1, 2, NULL);`.",
+    "Anti-join patterns: `NOT EXISTS (...)`, or `LEFT JOIN` and keep rows where a column of `orders` that is never NULL for a real match (like `order_id`) is NULL."
+  ],
+  "explanation": "This is an **anti-join**: keep left rows that have no match on the right.\n\nThe classic trap is `NOT IN`:\n\n```sql\nWHERE customer_id NOT IN (SELECT customer_id FROM orders)  -- wrong once orders has a NULL\n```\n\n`x NOT IN (a, b, NULL)` means `x <> a AND x <> b AND x <> NULL`. The last comparison is UNKNOWN, so the whole predicate is never TRUE and the query returns **zero rows** as soon as one guest checkout exists.\n\nCorrect patterns:\n\n- `NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)`: NULL keys simply never match.\n- `LEFT JOIN orders o ON o.customer_id = c.customer_id WHERE o.order_id IS NULL`. Test a column that cannot be NULL on a real match. Testing `o.amount IS NULL` would wrongly return a customer whose only order has a NULL amount.\n\nEdge cases in the hidden data: guest orders with NULL `customer_id`, an order for a deleted customer, zero and NULL amounts, a customer with a NULL name, and two customers who share a name (so de-duplicating on `name` would be wrong).\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM customers\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "NOT IN against a column containing NULL",
+      "code": "SELECT customer_id, name FROM customers WHERE customer_id NOT IN (SELECT customer_id FROM orders);\n"
+    },
+    {
+      "note": "LEFT JOIN anti-join that tests a nullable column",
+      "code": "SELECT c.customer_id, c.name FROM customers c LEFT JOIN orders o ON o.customer_id = c.customer_id WHERE o.amount IS NULL;\n"
+    }
+  ]
+}

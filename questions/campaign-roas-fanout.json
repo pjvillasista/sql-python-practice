@@ -1,0 +1,87 @@
+{
+  "id": "campaign-roas-fanout",
+  "title": "Campaign ROAS Without Double Counting",
+  "difficulty": "medium",
+  "language": "sql",
+  "tags": [
+    "joins",
+    "fanout",
+    "aggregation",
+    "null-handling"
+  ],
+  "prompt": "Marketing wants **return on ad spend (ROAS)** per campaign over all time.\n\n- `ad_spend` has one row per campaign per day of spend.\n- `orders` holds orders attributed to a campaign. `campaign_id` is NULL for unattributed orders, which are ignored.\n\nFor **every campaign in `campaigns`**, return:\n\n| column | definition |\n|---|---|\n| `campaign_id` | |\n| `total_spend` | sum of `spend` over all its `ad_spend` rows (NULL spend counts as 0; 0 if no rows) |\n| `total_revenue` | sum of `revenue` over all its orders (NULL revenue counts as 0; 0 if no orders) |\n| `roas` | `total_revenue / total_spend` rounded to 2 decimal places; **NULL when `total_spend` is 0** |\n\nRows in `ad_spend` or `orders` whose campaign id is not in `campaigns` are ignored. Dates do not matter: use every row.\n",
+  "tables": [
+    {
+      "name": "campaigns",
+      "columns": [
+        {
+          "name": "campaign_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "campaign_name",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "channel",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "name": "ad_spend",
+      "columns": [
+        {
+          "name": "campaign_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "spend_date",
+          "type": "DATE"
+        },
+        {
+          "name": "spend",
+          "type": "DOUBLE"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "campaign_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_date",
+          "type": "DATE"
+        },
+        {
+          "name": "revenue",
+          "type": "DOUBLE"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE campaigns (campaign_id INTEGER, campaign_name VARCHAR, channel VARCHAR);\nINSERT INTO campaigns VALUES (1, 'Spring Sale', 'search'), (2, 'Brand Video', 'social'), (3, 'Retargeting', 'display');\nCREATE TABLE ad_spend (campaign_id INTEGER, spend_date DATE, spend DOUBLE);\nINSERT INTO ad_spend VALUES\n  (1, '2024-04-01', 100.00),\n  (1, '2024-04-02', 150.00),\n  (1, '2024-04-03',  50.00),\n  (2, '2024-04-01', 400.00),\n  (3, '2024-04-02',  80.00),\n  (3, '2024-04-03', 120.00);\nCREATE TABLE orders (order_id INTEGER, campaign_id INTEGER, order_date DATE, revenue DOUBLE);\nINSERT INTO orders VALUES\n  (1001, 1,    '2024-04-01', 240.00),\n  (1002, 1,    '2024-04-02', 180.00),\n  (1003, 2,    '2024-04-03', 172.00),\n  (1004, 3,    '2024-04-03', 300.00),\n  (1005, 3,    '2024-04-04',  90.00),\n  (1006, NULL, '2024-04-04',  75.00);\n",
+  "hidden_seed": "CREATE TABLE campaigns (campaign_id INTEGER, campaign_name VARCHAR, channel VARCHAR);\nINSERT INTO campaigns VALUES\n  (1, 'Always On',  'search'),\n  (2, 'Podcast',    'audio'),    -- spend rows that sum to 0: ROAS is NULL\n  (3, 'Influencer', 'social'),   -- spend but no orders: ROAS 0\n  (4, 'Test Cell',  'display'),  -- orders but no spend rows: ROAS NULL\n  (5, 'Paused',     'search');\nCREATE TABLE ad_spend (campaign_id INTEGER, spend_date DATE, spend DOUBLE);\nINSERT INTO ad_spend VALUES\n  (1,  '2024-05-01', 100.00),\n  (1,  '2024-05-02', 100.00),\n  (1,  '2024-05-03', NULL),\n  (2,  '2024-05-01',   0.00),\n  (2,  '2024-05-02',   0.00),\n  (3,  '2024-05-01', 250.00),\n  (5,  '2024-05-01',  60.00),\n  (77, '2024-05-01', 500.00);    -- unknown campaign\nCREATE TABLE orders (order_id INTEGER, campaign_id INTEGER, order_date DATE, revenue DOUBLE);\nINSERT INTO orders VALUES\n  (1, 1,    '2024-05-01',  50.00),\n  (2, 1,    '2024-05-02',  70.00),\n  (3, 1,    '2024-05-03',  NULL),\n  (4, 2,    '2024-05-01',  30.00),\n  (5, 2,    '2024-05-02',  45.00),\n  (6, 4,    '2024-05-02',  80.00),\n  (7, 5,    '2024-05-02',  20.00),\n  (8, NULL, '2024-05-02', 999.00),\n  (9, 77,   '2024-05-02',  40.00);\n",
+  "solution": "WITH spend AS (\n  SELECT campaign_id, SUM(spend) AS total_spend\n  FROM ad_spend\n  GROUP BY campaign_id\n),\nrevenue AS (\n  SELECT campaign_id, SUM(revenue) AS total_revenue\n  FROM orders\n  WHERE campaign_id IS NOT NULL\n  GROUP BY campaign_id\n)\nSELECT\n  c.campaign_id,\n  COALESCE(s.total_spend, 0)   AS total_spend,\n  COALESCE(r.total_revenue, 0) AS total_revenue,\n  CASE\n    WHEN COALESCE(s.total_spend, 0) = 0 THEN NULL\n    ELSE ROUND(COALESCE(r.total_revenue, 0) / s.total_spend, 2)\n  END AS roas\nFROM campaigns AS c\nLEFT JOIN spend   AS s ON s.campaign_id = c.campaign_id\nLEFT JOIN revenue AS r ON r.campaign_id = c.campaign_id;\n",
+  "ordered": false,
+  "tolerance": 0.006,
+  "hints": [
+    "Join `campaigns` to `ad_spend` and to `orders` in one query and look at campaign 1: how many joined rows does it have, and how many times is each spend row counted?",
+    "Aggregate each child table to one row per campaign *before* joining, or use correlated subqueries."
+  ],
+  "explanation": "This is the **join fanout** (or \"chasm trap\") problem. A campaign with 3 spend rows and 2 orders joins to **3 × 2 = 6 rows**, so\n\n```sql\nSELECT c.campaign_id, SUM(s.spend), SUM(o.revenue)\nFROM campaigns c\nLEFT JOIN ad_spend s ON ...\nLEFT JOIN orders   o ON ...\nGROUP BY 1\n```\n\ncounts each spend row twice and each order three times. Both totals are inflated by *different* factors, so the ratio is wrong too.\n\nFix: **pre-aggregate each child table to the campaign grain**, then join one-to-one:\n\n- `spend` CTE: one row per campaign.\n- `revenue` CTE: one row per campaign.\n- LEFT JOIN both onto `campaigns`, `COALESCE` missing totals to 0, and guard the division.\n\n(`SUM(DISTINCT ...)` is not a fix: two legitimately equal spend rows would be collapsed.)\n\nHidden edge cases: spend rows that sum to exactly 0 (ROAS NULL, not a division error or infinity), a campaign with spend but no orders (ROAS 0), orders but no spend (ROAS NULL), NULL spend and revenue values, unattributed orders, and rows for an unknown campaign.\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM campaigns\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "joins both child tables before aggregating (fanout)",
+      "code": "SELECT c.campaign_id, COALESCE(SUM(s.spend),0) AS total_spend, COALESCE(SUM(o.revenue),0) AS total_revenue, CASE WHEN COALESCE(SUM(s.spend),0)=0 THEN NULL ELSE ROUND(COALESCE(SUM(o.revenue),0)/SUM(s.spend),2) END AS roas FROM campaigns c LEFT JOIN ad_spend s ON s.campaign_id=c.campaign_id LEFT JOIN orders o ON o.campaign_id=c.campaign_id GROUP BY c.campaign_id;\n"
+    }
+  ]
+}

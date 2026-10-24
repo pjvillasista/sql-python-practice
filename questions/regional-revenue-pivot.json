@@ -1,0 +1,78 @@
+{
+  "id": "regional-revenue-pivot",
+  "title": "Quarterly Revenue Pivot by Region",
+  "difficulty": "medium",
+  "language": "python",
+  "tags": [
+    "pandas",
+    "merge",
+    "groupby",
+    "pivot",
+    "fanout"
+  ],
+  "prompt": "Build the Q1 2024 revenue-by-region table for a slide.\n\n- Use only orders with `status == 'completed'` and `order_date` from 2024-01-01 through 2024-03-31 inclusive. A NULL `amount` counts as 0.\n- Attach each order's region from `customers`. **`customers` can contain the same `customer_id` more than once** (an upstream sync bug). Duplicates always carry the same region, and each order must be counted once.\n- Orders whose `customer_id` is NULL, is missing from `customers`, or whose customer's `region` is NULL go to region `'Unknown'`.\n\nReturn one row per region with columns **`region`, `jan`, `feb`, `mar`**: total completed revenue per month, `0.0` when there is none.\n\nInclude every non-NULL region that appears in `customers`, even one with no Q1 revenue, plus `'Unknown'` only if at least one qualifying order maps to it. Row order does not matter.\n",
+  "tables": [
+    {
+      "name": "orders",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "customer_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_date",
+          "type": "DATE"
+        },
+        {
+          "name": "amount",
+          "type": "DOUBLE"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "region",
+          "type": "VARCHAR"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_date DATE, amount DOUBLE, status VARCHAR);\nINSERT INTO orders VALUES\n  (1, 1, '2024-01-15', 100.00, 'completed'),\n  (2, 2, '2024-01-20',  50.00, 'completed'),\n  (3, 3, '2024-02-03',  75.00, 'completed'),\n  (4, 3, '2024-02-10',  25.00, 'refunded'),\n  (5, 1, '2024-03-05',  60.00, 'completed'),\n  (6, 4, '2024-04-02',  90.00, 'completed'),\n  (7, 2, '2024-03-28',  40.00, 'completed');\nCREATE TABLE customers (customer_id INTEGER, region VARCHAR);\nINSERT INTO customers VALUES (1, 'North'), (2, 'North'), (3, 'South'), (4, 'West'), (2, 'North');\n",
+  "hidden_seed": "CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_date DATE, amount DOUBLE, status VARCHAR);\nINSERT INTO orders VALUES\n  (1,  10,   '2024-01-01', 10.00, 'completed'),  -- first day of the quarter\n  (2,  11,   '2024-03-31', 20.00, 'completed'),  -- last day; customer 11 is listed 3 times\n  (3,  12,   '2024-02-15', 30.00, 'completed'),  -- customer with NULL region\n  (4,  NULL, '2024-02-16', 40.00, 'completed'),  -- NULL customer\n  (5,  99,   '2024-01-10', 50.00, 'completed'),  -- unknown customer\n  (6,  13,   '2024-02-01', NULL,  'completed'),  -- NULL amount\n  (7,  13,   '2023-12-31', 70.00, 'completed'),  -- before Q1\n  (8,  13,   '2024-04-01', 80.00, 'completed'),  -- after Q1\n  (9,  10,   '2024-03-15',  5.50, 'pending'),\n  (10, 11,   '2024-01-31',  2.25, 'completed');\nCREATE TABLE customers (customer_id INTEGER, region VARCHAR);\nINSERT INTO customers VALUES\n  (10, 'East'), (11, 'East'), (11, 'East'), (11, 'East'),\n  (12, NULL), (13, 'Central'), (14, 'Islands');\n",
+  "solution": "import pandas as pd\n\n\ndef solve(orders: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:\n    regions = customers.drop_duplicates(subset=\"customer_id\")[[\"customer_id\", \"region\"]]\n\n    q1 = orders[\n        (orders[\"status\"] == \"completed\")\n        & (orders[\"order_date\"] >= \"2024-01-01\")\n        & (orders[\"order_date\"] <= \"2024-03-31\")\n    ].copy()\n    q1[\"amount\"] = q1[\"amount\"].fillna(0.0)\n\n    q1 = q1.merge(regions, on=\"customer_id\", how=\"left\", validate=\"many_to_one\")\n    q1[\"region\"] = q1[\"region\"].fillna(\"Unknown\")\n    q1[\"month\"] = q1[\"order_date\"].dt.month\n\n    table = q1.pivot_table(\n        index=\"region\", columns=\"month\", values=\"amount\", aggfunc=\"sum\", fill_value=0.0\n    ).reindex(columns=[1, 2, 3], fill_value=0.0)\n\n    all_regions = sorted(set(regions[\"region\"].dropna()) | set(table.index))\n    table = table.reindex(all_regions, fill_value=0.0)\n    table.columns = [\"jan\", \"feb\", \"mar\"]\n    return table.rename_axis(\"region\").reset_index()\n",
+  "ordered": false,
+  "python": {
+    "entry": "solve",
+    "signature": "solve(orders: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame"
+  },
+  "hints": [
+    "Merge `orders` with `customers` as-is and compare the row count before and after. What does a duplicated key on the right side do?",
+    "`merge(..., validate=\"many_to_one\")` raises if the right side has duplicate keys. After the merge, `pivot_table(..., fill_value=0)` and `reindex` fill the empty month and region cells."
+  ],
+  "explanation": "The trap is a **merge fanout**: `orders.merge(customers, on=\"customer_id\")` returns one row per matching *pair*, so an order for a customer listed three times appears three times and its revenue triples. This is the same chasm-trap problem as in SQL.\n\nFixes:\n\n- De-duplicate the lookup table to the join key first: `customers.drop_duplicates(\"customer_id\")`.\n- Add `validate=\"many_to_one\"` so pandas raises if that assumption ever breaks.\n- Use `how=\"left\"` so orders without a match survive (an inner merge silently drops them), then `fillna(\"Unknown\")`.\n\nShaping:\n\n- `pivot_table(index=\"region\", columns=\"month\", values=\"amount\", aggfunc=\"sum\", fill_value=0)` builds the grid.\n- `reindex(columns=[1, 2, 3])` guarantees all three months exist even if a month has no sales anywhere.\n- `reindex(all_regions)` adds regions with no Q1 revenue.\n\nHidden edge cases: a customer listed three times, a NULL-region customer, NULL and unknown customer ids, a NULL amount, orders on the first and last day of the quarter, orders just outside it, a non-completed order, and a region with no orders.\n",
+  "starter": "import pandas as pd\n\n\ndef solve(orders: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:\n    # Your code here\n    return orders.head()\n",
+  "trap_solutions": [
+    {
+      "note": "inner merge (drops Unknown orders); passes visible, fails hidden",
+      "code": "import pandas as pd\n\ndef solve(orders, customers):\n    r = customers.drop_duplicates(\"customer_id\")\n    q = orders[(orders.status == \"completed\") & (orders.order_date >= \"2024-01-01\") & (orders.order_date <= \"2024-03-31\")].copy()\n    q[\"amount\"] = q[\"amount\"].fillna(0)\n    q = q.merge(r, on=\"customer_id\")\n    q[\"m\"] = q.order_date.dt.month\n    t = q.pivot_table(index=\"region\", columns=\"m\", values=\"amount\", aggfunc=\"sum\", fill_value=0.0).reindex(columns=[1, 2, 3], fill_value=0.0)\n    t = t.reindex(sorted(set(r.region.dropna()) | set(t.index)), fill_value=0.0)\n    return t.reset_index()\n"
+    },
+    {
+      "note": "merge without de-duplicating customers (fanout)",
+      "code": "import pandas as pd\n\ndef solve(orders, customers):\n    q = orders[(orders.status == \"completed\") & (orders.order_date >= \"2024-01-01\") & (orders.order_date <= \"2024-03-31\")].copy()\n    q[\"amount\"] = q[\"amount\"].fillna(0)\n    q = q.merge(customers, on=\"customer_id\", how=\"left\")\n    q[\"region\"] = q[\"region\"].fillna(\"Unknown\")\n    q[\"m\"] = q.order_date.dt.month\n    t = q.pivot_table(index=\"region\", columns=\"m\", values=\"amount\", aggfunc=\"sum\", fill_value=0.0).reindex(columns=[1, 2, 3], fill_value=0.0)\n    t = t.reindex(sorted(set(customers.region.dropna()) | set(t.index)), fill_value=0.0)\n    return t.reset_index()\n"
+    }
+  ]
+}

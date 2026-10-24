@@ -1,0 +1,60 @@
+{
+  "id": "clean-signup-list",
+  "title": "Deduplicate a Messy Signup List",
+  "difficulty": "easy",
+  "language": "python",
+  "tags": [
+    "pandas",
+    "cleaning",
+    "dedupe",
+    "strings"
+  ],
+  "prompt": "A marketing export has duplicate and messy rows. Clean it so there is exactly one row per person.\n\n1. Normalize `email`: strip leading/trailing whitespace, then lowercase.\n2. Drop rows whose normalized email is missing (NULL) or empty.\n3. For each normalized email keep the row with the **earliest** `signed_up_at`. If several rows tie on `signed_up_at`, keep the one with the **lowest `signup_id`**. (`signed_up_at` is never NULL.)\n4. In the kept rows, strip leading/trailing whitespace from `full_name` (inner spaces stay as they are; a missing name stays missing).\n\nReturn a DataFrame with columns **`email`, `full_name`, `signed_up_at`, `source`** in that order, one row per normalized email, with values from the kept row (`email` normalized).\n",
+  "tables": [
+    {
+      "name": "signups",
+      "columns": [
+        {
+          "name": "signup_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "full_name",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "signed_up_at",
+          "type": "TIMESTAMP"
+        },
+        {
+          "name": "source",
+          "type": "VARCHAR"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE signups (signup_id INTEGER, email VARCHAR, full_name VARCHAR, signed_up_at TIMESTAMP, source VARCHAR);\nINSERT INTO signups VALUES\n  (1, 'ana@example.com',   'Ana Cruz',     '2024-03-01 09:00:00', 'ads'),\n  (2, 'ANA@example.com ',  'Ana Cruz',     '2024-03-02 10:00:00', 'organic'),\n  (3, 'ben@example.com',   '  Ben Ito ',   '2024-03-01 12:00:00', 'referral'),\n  (4, 'chloe@example.com', 'Chloe Park',   '2024-03-03 08:30:00', 'ads'),\n  (5, NULL,                'No Email',     '2024-03-03 09:00:00', 'ads'),\n  (6, 'ben@example.com',   'Benjamin Ito', '2024-03-04 16:00:00', 'organic');\n",
+  "hidden_seed": "CREATE TABLE signups (signup_id INTEGER, email VARCHAR, full_name VARCHAR, signed_up_at TIMESTAMP, source VARCHAR);\nINSERT INTO signups VALUES\n  (10, '  Dana@Mail.com', 'Dana Lee',        '2024-04-02 10:00:00', 'ads'),\n  (11, 'dana@mail.com',   'D. Lee',          '2024-04-01 10:00:00', 'organic'),   -- earlier, appears later in the file\n  (12, '   ',             ' Blank ',         '2024-04-01 08:00:00', 'ads'),       -- whitespace-only email\n  (13, '',                'Empty',           '2024-04-01 08:00:00', 'ads'),       -- empty email\n  (15, 'eve@mail.com',    'Eve Adams',       '2024-04-05 09:00:00', 'referral'),\n  (14, 'EVE@MAIL.COM',    'Eve A.',          '2024-04-05 09:00:00', 'ads'),       -- tie: lower signup_id wins\n  (16, 'finn@mail.com',   NULL,              '2024-04-06 11:00:00', 'organic'),   -- missing name stays missing\n  (17, 'gia@mail.com',    '  Gia  Rossi  ',  '2024-04-07 12:00:00', NULL),        -- inner double space kept\n  (18, NULL,              NULL,              '2024-04-08 12:00:00', 'ads');\n",
+  "solution": "import pandas as pd\n\n\ndef solve(signups: pd.DataFrame) -> pd.DataFrame:\n    df = signups.copy()\n    df[\"email\"] = df[\"email\"].str.strip().str.lower()\n    df = df[df[\"email\"].notna() & (df[\"email\"] != \"\")]\n    df = df.sort_values([\"email\", \"signed_up_at\", \"signup_id\"])\n    df = df.drop_duplicates(subset=\"email\", keep=\"first\")\n    df[\"full_name\"] = df[\"full_name\"].str.strip()\n    return df[[\"email\", \"full_name\", \"signed_up_at\", \"source\"]].reset_index(drop=True)\n",
+  "ordered": false,
+  "python": {
+    "entry": "solve",
+    "signature": "solve(signups: pd.DataFrame) -> pd.DataFrame"
+  },
+  "hints": [
+    "`Series.str.strip()` and `.str.lower()` pass missing values through as missing.",
+    "`drop_duplicates(keep=\"first\")` keeps whichever row comes first in the current order. Sort by the tie-break keys first."
+  ],
+  "explanation": "Pipeline:\n\n```python\ndf[\"email\"] = df[\"email\"].str.strip().str.lower()\ndf = df[df[\"email\"].notna() & (df[\"email\"] != \"\")]\ndf = df.sort_values([\"email\", \"signed_up_at\", \"signup_id\"])\ndf = df.drop_duplicates(subset=\"email\", keep=\"first\")\n```\n\n- **Normalize before de-duplicating**, otherwise `'ANA@example.com '` and `'ana@example.com'` are different keys.\n- **Strip before testing for empty**: `'   '` becomes `''`, which must be dropped. `dropna()` alone does not catch it.\n- **`drop_duplicates` keeps the first row in the current order**, not the earliest by time. Without sorting, the result depends on file order. That passes the visible data by luck and fails the hidden data, where the earliest row for `dana@mail.com` appears second.\n- The tie-break on `signup_id` makes the result deterministic when timestamps are equal.\n- `.str.strip()` only trims the ends; `'Gia  Rossi'` keeps its inner double space.\n\nAn equivalent approach: `df.loc[df.groupby(\"email\")[\"signed_up_at\"].idxmin()]`. Note that `idxmin` breaks ties by first occurrence, so it still needs the `signup_id` sort.\n",
+  "starter": "import pandas as pd\n\n\ndef solve(signups: pd.DataFrame) -> pd.DataFrame:\n    # Your code here\n    return signups.head()\n",
+  "trap_solutions": [
+    {
+      "note": "drop_duplicates without sorting (file order decides)",
+      "code": "import pandas as pd\n\ndef solve(signups):\n    df = signups.copy()\n    df[\"email\"] = df[\"email\"].str.strip().str.lower()\n    df = df[df[\"email\"].notna() & (df[\"email\"] != \"\")]\n    df = df.drop_duplicates(subset=\"email\")\n    df[\"full_name\"] = df[\"full_name\"].str.strip()\n    return df[[\"email\", \"full_name\", \"signed_up_at\", \"source\"]]\n"
+    }
+  ]
+}

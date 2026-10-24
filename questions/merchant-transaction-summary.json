@@ -1,0 +1,68 @@
+{
+  "id": "merchant-transaction-summary",
+  "title": "Merchant Transaction Summary",
+  "difficulty": "easy",
+  "language": "sql",
+  "tags": [
+    "conditional-aggregation",
+    "joins",
+    "null-handling"
+  ],
+  "prompt": "A payments team needs a one-row-per-merchant summary for a dashboard.\n\nEach transaction has exactly one final `status`: `'completed'`, `'refunded'`, `'failed'`, or `'pending'` (always lowercase).\n\nFor **every merchant in `merchants`**, including merchants with no transactions, return:\n\n| column | definition |\n|---|---|\n| `merchant_id` | |\n| `completed_count` | number of completed transactions |\n| `refunded_count` | number of refunded transactions |\n| `failed_count` | number of failed transactions |\n| `completed_revenue` | sum of `amount` over completed transactions; a NULL amount counts as 0; 0 when there are none |\n\nPending transactions are not counted in any column. Transactions whose `merchant_id` is not in `merchants` are ignored.\n",
+  "tables": [
+    {
+      "name": "merchants",
+      "columns": [
+        {
+          "name": "merchant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "merchant_name",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "name": "transactions",
+      "columns": [
+        {
+          "name": "txn_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "merchant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "amount",
+          "type": "DOUBLE"
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP"
+        }
+      ]
+    }
+  ],
+  "seed": "CREATE TABLE merchants (merchant_id INTEGER, merchant_name VARCHAR);\nINSERT INTO merchants VALUES\n  (1, 'Blue Bottle Books'),\n  (2, 'Corner Cycle'),\n  (3, 'Delta Deli'),\n  (4, 'Echo Electronics');\nCREATE TABLE transactions (txn_id INTEGER, merchant_id INTEGER, status VARCHAR, amount DOUBLE, created_at TIMESTAMP);\nINSERT INTO transactions VALUES\n  (1, 1, 'completed', 20.00, '2024-03-01 09:00:00'),\n  (2, 1, 'completed', 35.50, '2024-03-01 10:15:00'),\n  (3, 1, 'refunded',  20.00, '2024-03-02 11:00:00'),\n  (4, 2, 'failed',    15.00, '2024-03-02 12:30:00'),\n  (5, 2, 'completed', 99.99, '2024-03-03 08:45:00'),\n  (6, 3, 'pending',   12.00, '2024-03-03 09:10:00'),\n  (7, 3, 'completed',  7.25, '2024-03-04 14:00:00'),\n  (8, 2, 'refunded',  99.99, '2024-03-05 16:20:00');\n",
+  "hidden_seed": "CREATE TABLE merchants (merchant_id INTEGER, merchant_name VARCHAR);\nINSERT INTO merchants VALUES\n  (1, 'Aurora Apparel'),\n  (2, 'Birch Bakery'),\n  (3, 'Cobalt Coffee'),\n  (4, 'Dune Diner'),\n  (5, 'Ember Eyewear');      -- no transactions at all\nCREATE TABLE transactions (txn_id INTEGER, merchant_id INTEGER, status VARCHAR, amount DOUBLE, created_at TIMESTAMP);\nINSERT INTO transactions VALUES\n  (1,  1,  'completed', 10.00, '2024-05-01 10:00:00'),\n  (2,  1,  'completed', NULL,  '2024-05-01 11:00:00'),  -- completed, NULL amount\n  (3,  1,  'pending',   50.00, '2024-05-01 12:00:00'),\n  (4,  1,  'pending',   NULL,  '2024-05-01 13:00:00'),\n  (5,  2,  'failed',    NULL,  '2024-05-02 10:00:00'),\n  (6,  2,  'failed',    30.00, '2024-05-02 11:00:00'),  -- merchant with only failures\n  (7,  3,  'refunded',  40.00, '2024-05-03 10:00:00'),\n  (10, 3,  'completed',  0.00, '2024-05-03 11:00:00'),\n  (8,  4,  'pending',   25.00, '2024-05-04 10:00:00'),  -- merchant with only pending\n  (9,  99, 'completed', 1000.00, '2024-05-05 10:00:00'); -- unknown merchant\n",
+  "solution": "SELECT\n  m.merchant_id,\n  COUNT(CASE WHEN t.status = 'completed' THEN 1 END) AS completed_count,\n  COUNT(CASE WHEN t.status = 'refunded'  THEN 1 END) AS refunded_count,\n  COUNT(CASE WHEN t.status = 'failed'    THEN 1 END) AS failed_count,\n  COALESCE(SUM(CASE WHEN t.status = 'completed' THEN t.amount END), 0) AS completed_revenue\nFROM merchants AS m\nLEFT JOIN transactions AS t\n  ON t.merchant_id = m.merchant_id\nGROUP BY m.merchant_id;\n",
+  "ordered": false,
+  "hints": [
+    "Start from `merchants` and LEFT JOIN `transactions` so merchants without transactions survive.",
+    "`COUNT(CASE WHEN ... THEN 1 END)` counts only matching rows, because COUNT skips NULLs. `SUM(...)` over zero matching rows is NULL, not 0."
+  ],
+  "explanation": "**Conditional aggregation** puts several filtered aggregates in one pass over the data:\n\n```sql\nCOUNT(CASE WHEN t.status = 'completed' THEN 1 END)\n```\n\nThe `CASE` yields NULL for non-matching rows, and `COUNT(expr)` ignores NULLs. (`SUM(CASE ... THEN 1 ELSE 0 END)` also works, but returns NULL instead of 0 for a merchant with no joined rows unless wrapped in `COALESCE`.)\n\nThings that go wrong:\n\n- **INNER JOIN** drops merchants without transactions; the prompt asks for every merchant.\n- **`COUNT(*)`** after a LEFT JOIN counts 1 for a merchant with no transactions, because the NULL-extended row is still a row.\n- **Revenue without `COALESCE`**: `SUM` over zero completed rows is NULL. A completed row with a NULL amount is skipped by `SUM`, which matches \"counts as 0\".\n- **Pending** must not leak into any column (e.g. computing `failed_count` as \"total minus completed minus refunded\").\n\nHidden edge cases: a merchant with only failed transactions, one with only pending ones, one with none, a completed transaction with a NULL amount, and a transaction for an unknown merchant.\n",
+  "starter": "-- DuckDB SQL. The last statement must return your answer.\nSELECT *\nFROM transactions\nLIMIT 5;\n",
+  "trap_solutions": [
+    {
+      "note": "failed_count derived as total minus others (counts pending)",
+      "code": "SELECT m.merchant_id, COUNT(CASE WHEN t.status='completed' THEN 1 END), COUNT(CASE WHEN t.status='refunded' THEN 1 END), COUNT(t.txn_id) - COUNT(CASE WHEN t.status='completed' THEN 1 END) - COUNT(CASE WHEN t.status='refunded' THEN 1 END), COALESCE(SUM(CASE WHEN t.status='completed' THEN t.amount END),0) FROM merchants m LEFT JOIN transactions t ON t.merchant_id=m.merchant_id GROUP BY m.merchant_id;\n"
+    }
+  ]
+}
